@@ -37,6 +37,7 @@ public class Loader {
 		PreparedStatement replaceMemberSql = null;
 		PreparedStatement replaceNoteSql = null;
 		PreparedStatement replaceMembershipSql = null;
+		PreparedStatement deleteMembershipLookupSql = null;
 		PreparedStatement replaceMembershipLookupSql = null;
 
 		try {
@@ -45,13 +46,14 @@ public class Loader {
 			replaceMemberSql = connection.prepareStatement("insert or replace into mbr(mbr_id, first_nm, last_nm) values(?, ?, ?)");
 			replaceNoteSql = connection.prepareStatement("insert or replace into mbr_note(mbr_id, mbr_note_txt) values(?, ?)");
 			replaceMembershipSql = connection.prepareStatement("insert or replace into mbr_mbrship(mbr_id, active_ind, mbrship_type_id, mbr_mbrship_start_dt, mbr_mbrship_end_dt, mbr_hof_id) values(?, ?, ?, date(?, 'unixepoch'), date(?, 'unixepoch'), ?)");
+			deleteMembershipLookupSql = connection.prepareStatement("delete from mbr_lu where mbr_id=?");
 			replaceMembershipLookupSql = connection.prepareStatement("insert or replace into mbr_lu(mbr_id, mbr_lu_id) values(?, ?)");
 			membershipTypeMap = new HashMap<Integer, MembershipType>();
 			ResultSet rs = selectMembershipTypeSql.executeQuery();
 			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy");
 			ZoneId zoneId = ZoneId.systemDefault();
 			LocalDate today = LocalDate.now(zoneId);
-			LocalDate infiniteDate = today.plusYears(100L);
+			LocalDate infiniteDate = LocalDate.of(9999, 12, 31);
 
 			while(rs.next()) {
 				MembershipType membershipType = new MembershipType();
@@ -92,8 +94,10 @@ public class Loader {
 
 				for (int i = 1; i < membershipTable.getRowCount(); i++) {
 					Row row = membershipTable.getRowByIndex(i);
-					if (StringUtils.isNotBlank(StringUtils.trimToEmpty(row.getCellByIndex(0).getStringValue()))) {
-						Long id = Long.valueOf(row.getCellByIndex(0).getStringValue());
+					String idString = StringUtils.trimToEmpty(row.getCellByIndex(0).getStringValue());
+
+					if (StringUtils.isNotBlank(idString)) {
+						Long id = Long.valueOf(idString);
 						String startDateString = row.getCellByIndex(1).getStringValue();
 						String firstName = StringUtils.trimToEmpty(row.getCellByIndex(2).getStringValue());
 						String lastName = StringUtils.trimToEmpty(row.getCellByIndex(3).getStringValue());
@@ -102,6 +106,7 @@ public class Loader {
 						Integer isCurrent = Integer.valueOf(row.getCellByIndex(6).getStringValue().toUpperCase().equals("Y") ? 1 : 0);
 						String endDateString = StringUtils.trimToNull(row.getCellByIndex(11).getStringValue());
 						String note = StringUtils.trimToNull(row.getCellByIndex(12).getStringValue());
+						String lookupIdString = StringUtils.trimToNull(row.getCellByIndex(13).getStringValue());
 						Long hofId = null;
 						boolean isFamily = false;
 
@@ -116,9 +121,14 @@ public class Loader {
 						replaceMemberSql.setString(3, lastName);
 						replaceMemberSql.executeUpdate();
 
-//						replaceMembershipLookupSql.setInt(1, id);
-//						replaceMembershipLookupSql.setString(2, "");
-//						replaceMembershipLookupSql.executeUpdate();
+						if (StringUtils.isNotBlank(lookupIdString)) {
+							deleteMembershipLookupSql.setLong(1, id);
+							deleteMembershipLookupSql.executeUpdate();
+
+							replaceMembershipLookupSql.setLong(1, id);
+							replaceMembershipLookupSql.setString(2, lookupIdString);
+							replaceMembershipLookupSql.executeUpdate();
+						}
 
 						Integer membershipTypeId = 0;
 						LocalDate startDate = LocalDate.parse(startDateString, formatter);
