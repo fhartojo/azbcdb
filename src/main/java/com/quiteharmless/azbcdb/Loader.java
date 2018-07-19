@@ -223,7 +223,7 @@ public class Loader {
 							}
 						}
 
-						System.out.println(id + "," + firstName + "," + lastName + "," + type + "," + typeLength + "," + isCurrent + "," + hofId + "," + isFamily + "," + (id.equals(hofId)));
+						System.out.println(id + "," + firstName + "," + lastName + "," + type + "," + typeLength + "," + isCurrent + ","  + endDateString + "," + hofId + "," + isFamily + "," + (id.equals(hofId)));
 
 						replaceMembershipSql.setLong(1, id);
 						replaceMembershipSql.setInt(3, membershipTypeId);
