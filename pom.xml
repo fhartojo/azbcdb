@@ -11,18 +11,38 @@
 	<url>http://maven.apache.org</url>
 
 	<properties>
+		<maven.compiler.target>1.8</maven.compiler.target>
+		<maven.compiler.source>1.8</maven.compiler.source>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<simple-odf.version>0.8.2-incubating</simple-odf.version>
+		<google-api-client.version>1.27.0</google-api-client.version>
+		<google-oauth-client-jetty.version>1.27.0</google-oauth-client-jetty.version>
+		<google-api-services-sheets.version>v4-rev20181116-1.27.0</google-api-services-sheets.version>
+		<log4j.version>2.11.1</log4j.version>
 		<commons-lang3.version>3.7</commons-lang3.version>
 		<junit.version>4.12</junit.version>
-		<sqlite-jdbc.version>3.21.0.1</sqlite-jdbc.version>
+		<sqlite-jdbc.version>3.25.2</sqlite-jdbc.version>
 	</properties>
 
 	<dependencies>
 		<dependency>
-			<groupId>org.apache.odftoolkit</groupId>
-			<artifactId>simple-odf</artifactId>
-			<version>${simple-odf.version}</version>
+			<groupId>com.google.apis</groupId>
+			<artifactId>google-api-services-sheets</artifactId>
+			<version>${google-api-services-sheets.version}</version>
+		</dependency>
+		<!-- <dependency>
+			<groupId>com.google.oauth-client</groupId>
+			<artifactId>google-oauth-client-jetty</artifactId>
+			<version>${google-oauth-client-jetty.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.api-client</groupId>
+			<artifactId>google-api-client</artifactId>
+			<version>${google-api-client.version}</version>
+		</dependency> -->
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-slf4j-impl</artifactId>
+			<version>${log4j.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.commons</groupId>

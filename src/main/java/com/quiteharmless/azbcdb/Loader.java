@@ -1,6 +1,7 @@
 package com.quiteharmless.azbcdb;
 
-import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -10,13 +11,23 @@ import java.time.LocalDate;
 import java.time.MonthDay;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
-import org.odftoolkit.simple.SpreadsheetDocument;
-import org.odftoolkit.simple.table.Row;
-import org.odftoolkit.simple.table.Table;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.services.sheets.v4.Sheets;
+import com.google.api.services.sheets.v4.SheetsScopes;
 
 public class Loader {
 	private Map<Integer, MembershipType> membershipTypeMap;
@@ -29,25 +40,42 @@ public class Loader {
 
 	private static final LocalDate VISITOR_START_DATE = LocalDate.of(2012, 1, 1);
 
-	private void loadData(String membershipDocFilename) {
-		SpreadsheetDocument membershipDoc = null;
-		Connection connection = null;
-		PreparedStatement selectMembershipTypeSql = null;
-		PreparedStatement deleteTableSql = null;
-		PreparedStatement replaceMemberSql = null;
-		PreparedStatement replaceNoteSql = null;
-		PreparedStatement replaceMembershipSql = null;
-		PreparedStatement deleteMembershipLookupSql = null;
-		PreparedStatement replaceMembershipLookupSql = null;
+	private static final String APPLICATION_NAME = "AZBC Database Loader";
 
-		try {
-			connection = DriverManager.getConnection("jdbc:sqlite:/home/francis/data/azbcMember.db");
-			selectMembershipTypeSql = connection.prepareStatement("select mbrship_type_id, mbrship_type_nm, mbrship_len, mbrship_len_type_cd, mbrship_auto_renew, mbrship_max_visit from mbrship_type");
-			replaceMemberSql = connection.prepareStatement("insert or replace into mbr(mbr_id, first_nm, last_nm) values(?, ?, ?)");
-			replaceNoteSql = connection.prepareStatement("insert or replace into mbr_note(mbr_id, mbr_note_txt) values(?, ?)");
-			replaceMembershipSql = connection.prepareStatement("insert or replace into mbr_mbrship(mbr_id, active_ind, mbrship_type_id, mbr_mbrship_start_dt, mbr_mbrship_end_dt, mbr_hof_id) values(?, ?, ?, date(?, 'unixepoch'), date(?, 'unixepoch'), ?)");
-			deleteMembershipLookupSql = connection.prepareStatement("delete from mbr_lu where mbr_id=?");
-			replaceMembershipLookupSql = connection.prepareStatement("insert or replace into mbr_lu(mbr_id, mbr_lu_id) values(?, ?)");
+	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
+
+	private static final List<String> SCOPES = Collections.singletonList(SheetsScopes.SPREADSHEETS_READONLY);
+
+	private static final String CREDENTIALS_FILE_PATH = "/azbc-database-lo-1544572518845-3e7e107b99d2.json";
+
+	//https://drive.google.com/open?id=1JGOWvtIo_3ScsXaMXzVQvVUn7ZABZYYF5Mm2vkVuAlk
+	private static final String SPREADSHEET_ID = "1JGOWvtIo_3ScsXaMXzVQvVUn7ZABZYYF5Mm2vkVuAlk";
+
+	private static final Logger log = LoggerFactory.getLogger(Loader.class);
+
+	private Credential getCredentials() throws IOException {
+		InputStream in = Loader.class.getResourceAsStream(CREDENTIALS_FILE_PATH);
+		GoogleCredential credential = GoogleCredential.fromStream(in).createScoped(SCOPES);
+
+		return credential;
+	}
+
+	private void loadData() {
+		try (
+				Connection connection = DriverManager.getConnection("jdbc:sqlite:/home/francis/data/azbcMember2.db");
+				PreparedStatement selectMembershipTypeSql = connection.prepareStatement("select mbrship_type_id, mbrship_type_nm, mbrship_len, mbrship_len_type_cd, mbrship_auto_renew, mbrship_max_visit from mbrship_type");
+				PreparedStatement replaceMemberSql = connection.prepareStatement("insert or replace into mbr(mbr_id, first_nm, last_nm) values(?, ?, ?)");
+				PreparedStatement replaceNoteSql = connection.prepareStatement("insert or replace into mbr_note(mbr_id, mbr_note_txt) values(?, ?)");
+				PreparedStatement replaceMembershipSql = connection.prepareStatement("insert or replace into mbr_mbrship(mbr_id, active_ind, mbrship_type_id, mbr_mbrship_start_dt, mbr_mbrship_end_dt, mbr_hof_id) values(?, ?, ?, date(?, 'unixepoch'), date(?, 'unixepoch'), ?)");
+				PreparedStatement deleteMembershipLookupSql = connection.prepareStatement("delete from mbr_lu where mbr_id=?");
+				PreparedStatement replaceMembershipLookupSql = connection.prepareStatement("insert or replace into mbr_lu(mbr_id, mbr_lu_id) values(?, ?)");
+		) {
+			PreparedStatement deleteTableSql = null;
+			final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
+			Sheets service = new Sheets.Builder(HTTP_TRANSPORT, JSON_FACTORY, getCredentials())
+					.setApplicationName(APPLICATION_NAME)
+					.build();
+
 			membershipTypeMap = new HashMap<Integer, MembershipType>();
 			ResultSet rs = selectMembershipTypeSql.executeQuery();
 			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy");
@@ -68,16 +96,12 @@ public class Loader {
 				membershipTypeMap.put(membershipType.getId(), membershipType);
 			}
 
-			File membershipFile = new File(membershipDocFilename);
+			List<List<Object>> values = service.spreadsheets().values().get(SPREADSHEET_ID, "!A2:N").execute().getValues();
 
-			if (membershipFile.isFile()) {			
-				membershipDoc = SpreadsheetDocument.loadDocument(membershipFile);
-
-				System.out.println("sheetCount = " + membershipDoc.getSheetCount());
-
-				Table membershipTable = membershipDoc.getSheetByIndex(0);
-
-				System.out.println("columnCount = " + membershipTable.getColumnCount() + "; rowCount = " + membershipTable.getRowCount());
+			if ((values == null) || values.isEmpty()) {
+				log.debug("No data");
+			} else {
+				log.debug("values.size() = " + values.size());
 
 				deleteTableSql = connection.prepareStatement("delete from mbr");
 				deleteTableSql.executeUpdate();
@@ -88,32 +112,42 @@ public class Loader {
 				deleteTableSql = connection.prepareStatement("delete from mbr_note");
 				deleteTableSql.executeUpdate();
 				deleteTableSql.close();
-//				deleteTableSql = connection.prepareStatement("delete from mbr_lu");
-//				deleteTableSql.executeUpdate();
-//				deleteTableSql.close();
 
-				for (int i = 1; i < membershipTable.getRowCount(); i++) {
-					Row row = membershipTable.getRowByIndex(i);
-					String idString = StringUtils.trimToEmpty(row.getCellByIndex(0).getStringValue());
+				for (List<Object> row: values) {
+					int colSize = row.size();
+					String idString = StringUtils.trimToEmpty((String) row.get(0));
 
 					if (StringUtils.isNotBlank(idString)) {
 						Long id = Long.valueOf(idString);
-						String startDateString = row.getCellByIndex(1).getStringValue();
-						String firstName = StringUtils.trimToEmpty(row.getCellByIndex(2).getStringValue());
-						String lastName = StringUtils.trimToEmpty(row.getCellByIndex(3).getStringValue());
-						String type = StringUtils.trimToEmpty(row.getCellByIndex(4).getStringValue().toUpperCase());
-						String typeLength = StringUtils.trimToEmpty(row.getCellByIndex(5).getStringValue().toUpperCase());
-						Integer isCurrent = Integer.valueOf(row.getCellByIndex(6).getStringValue().toUpperCase().equals("Y") ? 1 : 0);
-						String endDateString = StringUtils.trimToNull(row.getCellByIndex(11).getStringValue());
-						String note = StringUtils.trimToNull(row.getCellByIndex(12).getStringValue());
-						String lookupIdString = StringUtils.trimToNull(row.getCellByIndex(13).getStringValue());
-						Long hofId = null;
+						String startDateString = (String) row.get(1);
+						String firstName = StringUtils.trimToEmpty((String) row.get(2));
+						String lastName = StringUtils.trimToEmpty((String) row.get(3));
+						String type = StringUtils.trimToEmpty(((String) row.get(4)).toUpperCase());
+						String typeLength = StringUtils.trimToEmpty(((String) row.get(5)).toUpperCase());
+						Integer isCurrent = Integer.valueOf(((String) row.get(6)).toUpperCase().equals("Y") ? 1 : 0);
+						Long hofId = Long.valueOf(0);
+						String endDateString = null;
+						String note = null;
+						String lookupIdString = null;
 						boolean isFamily = false;
 
-						try {
-							hofId = Long.valueOf(StringUtils.trimToNull(row.getCellByIndex(8).getStringValue()) != null ? row.getCellByIndex(8).getStringValue() : "0");
-						} catch (NumberFormatException e) {
-							hofId = Long.valueOf(0);
+						if (8 < colSize) {
+							try {
+								hofId = Long.valueOf(StringUtils.trimToNull((String) row.get(8)) != null ? (String) row.get(8) : "0");
+							} catch (NumberFormatException e) {
+							}
+						}
+
+						if (11 < colSize) {
+							endDateString = StringUtils.trimToNull((String) row.get(11));
+						}
+
+						if (12 < colSize) {
+							note = StringUtils.trimToNull((String) row.get(12));
+						}
+
+						if (13 < colSize) {
+							lookupIdString = StringUtils.trimToNull((String) row.get(13));
 						}
 
 						replaceMemberSql.setLong(1, id);
@@ -146,7 +180,7 @@ public class Loader {
 									endDate = LocalDate.parse(endDateString, formatter);
 								} else {
 									if (isCurrent.intValue() == 1) {
-										System.err.println("endDateString is blank");
+										log.error("endDateString is blank");
 
 										endDate = null;
 									} else {
@@ -170,7 +204,7 @@ public class Loader {
 									endDate = LocalDate.parse(endDateString, formatter);
 								} else {
 									if (isCurrent.intValue() == 1) {
-										System.err.println("endDateString is blank");
+										log.error("endDateString is blank");
 
 										endDate = null;
 									} else {
@@ -178,7 +212,7 @@ public class Loader {
 									}
 								}
 							} else {
-								System.err.println("Unrecognised typeLength:  " + typeLength);
+								log.error("Unrecognised typeLength:  " + typeLength);
 							}
 						} else if (type.equals("IND")) {
 							if (typeLength.equals("ANN")) {
@@ -187,7 +221,7 @@ public class Loader {
 									endDate = LocalDate.parse(endDateString, formatter);
 								} else {
 									if (isCurrent.intValue() == 1) {
-										System.err.println("endDateString is blank");
+										log.error("endDateString is blank");
 
 										endDate = null;
 									} else {
@@ -211,7 +245,7 @@ public class Loader {
 									endDate = LocalDate.parse(endDateString, formatter);
 								} else {
 									if (isCurrent.intValue() == 1) {
-										System.err.println("endDateString is blank");
+										log.error("endDateString is blank");
 
 										endDate = null;
 									} else {
@@ -219,11 +253,11 @@ public class Loader {
 									}
 								}
 							} else {
-								System.err.println("Unrecognised typeLength:  " + typeLength);
+								log.error("Unrecognised typeLength:  " + typeLength);
 							}
 						}
 
-						System.out.println(id + "," + firstName + "," + lastName + "," + type + "," + typeLength + "," + isCurrent + ","  + endDateString + "," + hofId + "," + isFamily + "," + (id.equals(hofId)));
+						log.debug(id + "," + firstName + "," + lastName + "," + type + "," + typeLength + "," + isCurrent + ","  + endDateString + "," + hofId + "," + isFamily + "," + (id.equals(hofId)));
 
 						replaceMembershipSql.setLong(1, id);
 						replaceMembershipSql.setInt(3, membershipTypeId);
@@ -267,42 +301,9 @@ public class Loader {
 				replaceMembershipLookupSql.setLong(1, VISITOR_ID);
 				replaceMembershipLookupSql.setString(2, VISITOR_LOOKUP_ID);
 				replaceMembershipLookupSql.executeUpdate();
-			} else {
-				System.err.println(membershipDocFilename + " is not a readable spreadsheet");
 			}
 		} catch (Exception e) {
-			e.printStackTrace();
-		} finally {
-			try {
-				if (membershipDoc != null) {
-					membershipDoc.close();
-				}
-
-				if (deleteTableSql != null) {
-					deleteTableSql.close();
-				}
-
-				if (replaceMemberSql != null) {
-					replaceMemberSql.close();
-				}
-
-				if (replaceMembershipSql != null) {
-					replaceMembershipSql.close();
-				}
-
-				if (replaceNoteSql != null) {
-					replaceNoteSql.close();
-				}
-
-				if (replaceMembershipLookupSql != null) {
-					replaceMembershipLookupSql.close();
-				}
-
-				if (connection != null) {
-					connection.close();
-				}
-			} catch (Exception e) {
-			}
+			log.error("Exception", e);
 		}
 	}
 
@@ -311,7 +312,7 @@ public class Loader {
 
 		Loader app = new Loader();
 
-		app.loadData(args[0]);
+		app.loadData();
 	}
 
 	private class MembershipType {
