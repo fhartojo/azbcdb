@@ -50,8 +50,8 @@ public class Loader {
 
 	private static final String CREDENTIALS_FILE_PATH = "/home/francis/Documents/azbc-credential.json";
 
-	//https://drive.google.com/open?id=1JGOWvtIo_3ScsXaMXzVQvVUn7ZABZYYF5Mm2vkVuAlk
-	private static final String SPREADSHEET_ID = "1JGOWvtIo_3ScsXaMXzVQvVUn7ZABZYYF5Mm2vkVuAlk";
+	//https://drive.google.com/open?id=1l1geg9QssnWMfTDm2KE1wlB-gIwLAMuBMxOY4E9vi8E
+	private static final String SPREADSHEET_ID = "1l1geg9QssnWMfTDm2KE1wlB-gIwLAMuBMxOY4E9vi8E";
 
 	private static final Logger log = LoggerFactory.getLogger(Loader.class);
 
@@ -69,7 +69,7 @@ public class Loader {
 
 	private void loadData() {
 		try (
-				Connection connection = DriverManager.getConnection("jdbc:sqlite:/home/francis/data/azbcMember2.db");
+				Connection connection = DriverManager.getConnection("jdbc:sqlite:/home/francis/data/azbcMember.db");
 				PreparedStatement selectMembershipTypeSql = connection.prepareStatement("select mbrship_type_id, mbrship_type_nm, mbrship_len, mbrship_len_type_cd, mbrship_auto_renew, mbrship_max_visit from mbrship_type");
 		) {
 			final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
@@ -125,7 +125,7 @@ public class Loader {
 	}
 
 	private boolean loadMembersData(Connection connection, List<List<Object>> membersData, long loadId) {
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy");
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/dd/yy");
 		ZoneId zoneId = ZoneId.systemDefault();
 		LocalDate today = LocalDate.now(zoneId);
 		LocalDate infiniteDate = LocalDate.of(9999, 12, 31);
@@ -384,14 +384,35 @@ public class Loader {
 		boolean result = true;
 
 		try (
-				PreparedStatement purgeOldMembersDataSql = connection.prepareStatement("")
+				PreparedStatement purgeOldMemberSql = connection.prepareStatement("delete from mbr where load_id not in (select load_id from loader order by load_ts desc limit 2)");
+				PreparedStatement purgeOldMembershipSql = connection.prepareStatement("delete from mbr_mbrship where load_id not in (select load_id from loader order by load_ts desc limit 2)");
+				PreparedStatement purgeOldMembershipLookupSql = connection.prepareStatement("delete from mbr_lu where load_id not in (select load_id from loader order by load_ts desc limit 2)");
+				PreparedStatement purgeOldNoteSql = connection.prepareStatement("delete from mbr_note where load_id not in (select load_id from loader order by load_ts desc limit 2)");
+				PreparedStatement purgeOldLoaderSql = connection.prepareStatement("delete from loader where load_id not in (select load_id from loader order by load_ts desc limit 2)");
 		) {
-			
+			connection.setAutoCommit(false);
+
+			purgeOldMemberSql.executeUpdate();
+			purgeOldMembershipSql.executeUpdate();
+			purgeOldMembershipLookupSql.executeUpdate();
+			purgeOldNoteSql.executeUpdate();
+			purgeOldLoaderSql.executeUpdate();
+
+			connection.commit();
 		} catch (Exception e) {
 			log.error("Exception", e);
 
+			try {
+				if (connection != null) {
+					connection.rollback();
+				}
+			} catch (SQLException e1) {
+				log.error("SQLException", e1);
+			}
+
 			result = false;
 		}
+
 		return result;
 	}
 	
