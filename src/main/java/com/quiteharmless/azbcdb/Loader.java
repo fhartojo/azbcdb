@@ -125,7 +125,7 @@ public class Loader {
 	}
 
 	private boolean loadMembersData(Connection connection, List<List<Object>> membersData, long loadId) {
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/dd/yy");
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yy");
 		ZoneId zoneId = ZoneId.systemDefault();
 		LocalDate today = LocalDate.now(zoneId);
 		LocalDate infiniteDate = LocalDate.of(9999, 12, 31);
